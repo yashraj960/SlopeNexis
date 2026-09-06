@@ -1,0 +1,47 @@
+[
+  {
+    "id": "NER-001",
+    "name": "Shillong Bypass Slope",
+    "district": "East Khasi Hills",
+    "state": "Meghalaya",
+    "lat": 25.5788,
+    "lng": 91.8933,
+    "slope_deg": 38.5,
+    "elevation_m": 1496,
+    "ndvi": 0.42,
+    "historical_events": 7,
+    "base_rain_24h": 72,
+    "base_rain_72h": 158,
+    "base_soil": 71
+  },
+  {
+    "id": "NER-002",
+    "name": "Tawang Hill Corridor",
+    "district": "Tawang",
+    "state": "Arunachal Pradesh",
+    "lat": 27.5860,
+    "lng": 91.8590,
+    "slope_deg": 44.0,
+    "elevation_m": 2670,
+    "ndvi": 0.51,
+    "historical_events": 9,
+    "base_rain_24h": 55,
+    "base_rain_72h": 130,
+    "base_soil": 66
+  },
+  {
+    "id": "NER-003",
+    "name": "Gangtok East Slope",
+    "district": "Gangtok",
+    "state": "Sikkim",
+    "lat": 27.3389,
+    "lng": 88.6065,
+    "slope_deg": 41.0,
+    "elevation_m": 1650,
+    "ndvi": 0.47,
+    "historical_events": 10,
+    "base_rain_24h": 61,
+    "base_rain_72h": 146,
+    "base_soil": 68
+  }
+]

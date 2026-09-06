@@ -1,0 +1,63 @@
+{
+  "dataset": "real_training_dataset.csv",
+  "mode": "REAL_DATA",
+  "period": "2016-2025",
+  "samples": 1939,
+  "positive_samples": 179,
+  "negative_background_samples": 1760,
+  "train_samples": 1357,
+  "validation_samples": 291,
+  "test_samples": 291,
+  "validation_strategy": "stratified random prototype split: 70% train / 15% validation / 15% test",
+  "test": {
+    "samples": 291,
+    "positive_samples": 27,
+    "negative_samples": 264,
+    "accuracy": 0.9141,
+    "precision": 0.5556,
+    "recall": 0.3704,
+    "f1": 0.4444,
+    "roc_auc": 0.8476,
+    "confusion_matrix": [
+      [
+        256,
+        8
+      ],
+      [
+        17,
+        10
+      ]
+    ]
+  },
+  "feature_columns": [
+    "rainfall_24h_mm",
+    "rainfall_72h_mm",
+    "soil_moisture_pct",
+    "slope_deg",
+    "elevation_m",
+    "ndvi",
+    "historical_events"
+  ],
+  "model": "RandomForestClassifier(n_estimators=500,max_depth=18,min_samples_leaf=2,max_features=sqrt,class_weight=balanced_subsample)",
+  "warning": "NASA COOLR/GLC is an observed/reporting inventory, not exhaustive ground truth; background label 0 is not proof of no unreported landslide.",
+  "validation": {
+    "samples": 291,
+    "positive_samples": 27,
+    "negative_samples": 264,
+    "accuracy": 0.9175,
+    "precision": 0.56,
+    "recall": 0.5185,
+    "f1": 0.5385,
+    "roc_auc": 0.9022,
+    "confusion_matrix": [
+      [
+        253,
+        11
+      ],
+      [
+        13,
+        14
+      ]
+    ]
+  }
+}

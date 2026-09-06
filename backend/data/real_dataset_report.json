@@ -1,0 +1,48 @@
+{
+  "dataset": "real_training_dataset.csv",
+  "period": "2016-2025",
+  "years": [
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "region": "Northeast India",
+  "bbox": [
+    21.5,
+    29.8,
+    88.0,
+    97.7
+  ],
+  "rows": 1939,
+  "observed_landslide_rows": 179,
+  "background_rows": 1760,
+  "event_years_present": [
+    2016,
+    2017
+  ],
+  "feature_columns": [
+    "rainfall_24h_mm",
+    "rainfall_72h_mm",
+    "soil_moisture_pct",
+    "slope_deg",
+    "elevation_m",
+    "ndvi",
+    "historical_events",
+    "rainfall_7d_mm",
+    "rainfall_30d_mm",
+    "temperature_24h_mean_c",
+    "relative_humidity_24h_mean_pct"
+  ],
+  "inventory": "NASA COOLR with NASA Global Landslide Catalog fallback",
+  "weather": "Open-Meteo ERA5-Land historical reanalysis",
+  "terrain": "Copernicus DEM GLO-90 with SRTM fallback",
+  "vegetation": "Sentinel-2 L2A with NASA MODIS MOD13Q1 fallback",
+  "background_label_note": "Label 0 is a geographically and temporally screened background sample, not proof that no unreported landslide occurred."
+}

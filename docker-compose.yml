@@ -1,0 +1,22 @@
+services:
+  backend:
+    build: .
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-change-this-in-production}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
+      TWILIO_ALERT_TO: ${TWILIO_ALERT_TO:-}
+      IMD_API_URL: ${IMD_API_URL:-}
+      IMD_API_KEY: ${IMD_API_KEY:-}
+    expose:
+      - "8000"
+    volumes:
+      - ./backend/data:/app/backend/data
+      - ./backend/uploads:/app/backend/uploads
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
