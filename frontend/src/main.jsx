@@ -54,7 +54,37 @@ function riskIcon(level){
   return iconCache[level];
 }
 function pointIcon(cls,label){return L.divIcon({className:"layer-marker-wrap",html:`<div class="layer-marker ${cls}">${label}</div>`,iconSize:[34,34],iconAnchor:[17,17]});}
-function FitBounds({locations}){const map=useMap();useEffect(()=>{if(locations.length)map.fitBounds(L.latLngBounds(locations.map(x=>[x.lat,x.lng])).pad(.2),{animate:true,maxZoom:8});},[locations,map]);return null;}
+function FitBounds({ locations = [] }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!Array.isArray(locations) || locations.length === 0) return;
+
+    const validLocations = locations.filter(
+      (x) =>
+        x &&
+        Number.isFinite(Number(x.lat)) &&
+        Number.isFinite(Number(x.lng))
+    );
+
+    if (validLocations.length === 0) return;
+
+    map.fitBounds(
+      L.latLngBounds(
+        validLocations.map((x) => [
+          Number(x.lat),
+          Number(x.lng)
+        ])
+      ).pad(0.2),
+      {
+        animate: true,
+        maxZoom: 8
+      }
+    );
+  }, [locations, map]);
+
+  return null;
+}
 
 function App(){
   const [locations,setLocations]=useState([]),[alerts,setAlerts]=useState([]),[layers,setLayers]=useState({roads:[],villages:[],infrastructure:[]}),[forecast,setForecast]=useState([]),[priorities,setPriorities]=useState([]),[realReports,setRealReports]=useState([]),[selected,setSelected]=useState(null),[loading,setLoading]=useState(true),[connected,setConnected]=useState(false),[sat,setSat]=useState(false),[layer,setLayer]=useState("risk"),[lang,setLang]=useState(localStorage.getItem("slopenexis_lang")||"en"),[message,setMessage]=useState(""),[report,setReport]=useState({name:"",type:"Crack / slope movement",description:"",lat:"",lng:""}),[media,setMedia]=useState(null),[offlineCount,setOfflineCount]=useState(Number(localStorage.getItem("slopenexis_offline_count")||0)),[installPrompt,setInstallPrompt]=useState(null),[routeInfo,setRouteInfo]=useState(null),[dark,setDark]=useState(true);
