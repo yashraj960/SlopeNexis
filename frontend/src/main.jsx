@@ -90,7 +90,81 @@ function App(){
   const [locations,setLocations]=useState([]),[alerts,setAlerts]=useState([]),[layers,setLayers]=useState({roads:[],villages:[],infrastructure:[]}),[forecast,setForecast]=useState([]),[priorities,setPriorities]=useState([]),[realReports,setRealReports]=useState([]),[selected,setSelected]=useState(null),[loading,setLoading]=useState(true),[connected,setConnected]=useState(false),[sat,setSat]=useState(false),[layer,setLayer]=useState("risk"),[lang,setLang]=useState(localStorage.getItem("slopenexis_lang")||"en"),[message,setMessage]=useState(""),[report,setReport]=useState({name:"",type:"Crack / slope movement",description:"",lat:"",lng:""}),[media,setMedia]=useState(null),[offlineCount,setOfflineCount]=useState(Number(localStorage.getItem("slopenexis_offline_count")||0)),[installPrompt,setInstallPrompt]=useState(null),[routeInfo,setRouteInfo]=useState(null),[dark,setDark]=useState(true);
   const tr=copy(lang);
   useEffect(()=>{localStorage.setItem("slopenexis_lang",lang);document.documentElement.lang=lang;},[lang]);
-  const load=async()=>{setLoading(true);try{const results=await Promise.allSettled[(fetch(`${API_BASE}/api/risk`)),fetch(`${API_BASE}/api/alerts`),fetch(`${API_BASE}/api/gis/layers`),fetch(`${API_BASE}/api/operations/forecast`),fetch(`${API_BASE}/api/operations/priorities`),fetch(`${API_BASE}/api/v1/reports/all`)];const [r,a,g,f,p,rr]=results.map(x=>x.status==='fulfilled'?x.value:null);if(!r)throw Error(tr.backendUnavailable);if(!r.ok){let e=`Backend HTTP ${r.status}`;try{const j=await r.json();e=j.detail||e}catch{}throw Error(e)}const riskRows=await r.json();const clean=riskRows.filter(x=>x.risk_level&&Number.isFinite(x.risk_percent));setLocations(clean);if(!selected&&clean[0])setSelected(clean[0]);if(a?.ok)setAlerts(await a.json());if(g?.ok){const gl=await g.json();setLayers({roads:gl.roads||[],villages:gl.villages||[],infrastructure:gl.infrastructure||[]})}if(f?.ok){const fd=await f.json();setForecast(fd.forecast||[])}if(p?.ok)setPriorities(await p.json());if(rr?.ok){const rd=await rr.json();setRealReports(rd.reports||[])}setMessage("")}catch(e){console.error(e);setMessage(e.message)}finally{setLoading(false)}};
+  const load=async()=>{
+  setLoading(true);
+  try{
+    const results=await Promise.allSettled([
+      fetch(`${API_BASE}/api/risk`),
+      fetch(`${API_BASE}/api/alerts`),
+      fetch(`${API_BASE}/api/gis/layers`),
+      fetch(`${API_BASE}/api/operations/forecast`),
+      fetch(`${API_BASE}/api/operations/priorities`),
+      fetch(`${API_BASE}/api/v1/reports/all`)
+    ]);
+
+    const [r,a,g,f,p,rr]=results.map(
+      x=>x.status==="fulfilled"?x.value:null
+    );
+
+    if(!r) throw Error(tr.backendUnavailable);
+
+    if(!r.ok){
+      let e=`Backend HTTP ${r.status}`;
+      try{
+        const j=await r.json();
+        e=j.detail||e;
+      }catch{}
+      throw Error(e);
+    }
+
+    const riskRows=await r.json();
+    const clean=Array.isArray(riskRows)
+      ? riskRows.filter(
+          x=>x.risk_level&&Number.isFinite(x.risk_percent)
+        )
+      : [];
+
+    setLocations(clean);
+
+    if(!selected&&clean[0]) setSelected(clean[0]);
+
+    if(a?.ok){
+      const ad=await a.json();
+      setAlerts(Array.isArray(ad)?ad:[]);
+    }
+
+    if(g?.ok){
+      const gl=await g.json();
+      setLayers({
+        roads:Array.isArray(gl.roads)?gl.roads:[],
+        villages:Array.isArray(gl.villages)?gl.villages:[],
+        infrastructure:Array.isArray(gl.infrastructure)?gl.infrastructure:[]
+      });
+    }
+
+    if(f?.ok){
+      const fd=await f.json();
+      setForecast(Array.isArray(fd.forecast)?fd.forecast:[]);
+    }
+
+    if(p?.ok){
+      const pd=await p.json();
+      setPriorities(Array.isArray(pd)?pd:[]);
+    }
+
+    if(rr?.ok){
+      const rd=await rr.json();
+      setRealReports(Array.isArray(rd.reports)?rd.reports:[]);
+    }
+
+    setMessage("");
+  }catch(e){
+    console.error(e);
+    setMessage(e.message);
+  }finally{
+    setLoading(false);
+  }
+};
   useEffect(()=>{load();const t=setInterval(load,60000);const online=()=>syncOffline(true);window.addEventListener("online",online);return()=>{clearInterval(t);window.removeEventListener("online",online)}},[lang]);
   useEffect(()=>{if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{});const before=e=>{e.preventDefault();setInstallPrompt(e)};window.addEventListener("beforeinstallprompt",before);return()=>window.removeEventListener("beforeinstallprompt",before)},[]);
   useEffect(()=>{let ws=null,timer=null,stopped=false;const connect=()=>{if(stopped)return;const protocol=location.protocol==="https:"?"wss":"ws";const host=location.hostname||"127.0.0.1";const dev=["5173","4173"].includes(location.port);const wsBase = API_BASE.replace(/^http/, "ws");
