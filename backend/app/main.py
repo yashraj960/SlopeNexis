@@ -103,44 +103,156 @@ def predict_risk(payload: PredictionInput):
 @app.get("/api/risk")
 async def current_risk():
     if MODEL is None:
-        raise HTTPException(503, "Real model is not ready. Run the real-data build/train commands first.")
+        raise HTTPException(
+            503,
+            "Real model is not ready. Run the real-data build/train commands first."
+        )
+
     result = []
+
     for loc in LOCATIONS:
         try:
-            w, dem, nd = await asyncio.gather(
-                fetch_open_meteo(loc["lat"], loc["lng"]),
-                asyncio.to_thread(fetch_dem_features, loc["lat"], loc["lng"]),
-                asyncio.to_thread(fetch_sentinel_ndvi, loc["lat"], loc["lng"]),
-            )
-            if "slope_deg" not in dem or "ndvi" not in nd:
-                raise RuntimeError(f"Real terrain/satellite feature unavailable: {dem.get('error')} | {nd.get('error')}")
-            hist = 0
-            h = await fetch_coolr_count(loc["lat"], loc["lng"], 0.75)
-            hist = h["count"]
+            # Default values from the location inventory.
+            # These are used only when an external live-data service
+            # temporarily fails (for example, HTTP 429).
+            rainfall_24h = float(loc.get("base_rain_24h", 0))
+            rainfall_72h = float(loc.get("base_rain_72h", 0))
+            soil_moisture = float(loc.get("base_soil", 0))
+            slope_deg = float(loc.get("slope_deg", 0))
+            elevation_m = float(loc.get("elevation_m", 0))
+            ndvi_value = float(loc.get("ndvi", 0))
+
+            weather_source = "BASELINE_FALLBACK"
+            terrain_source = "BASELINE_FALLBACK"
+            satellite_source = "BASELINE_FALLBACK"
+
+            # Weather
+            try:
+                w = await fetch_open_meteo(loc["lat"], loc["lng"])
+
+                rainfall_24h = float(w["rainfall_24h_mm"])
+                rainfall_72h = float(w["rainfall_72h_mm"])
+                soil_moisture = float(w["soil_moisture_pct"])
+                forecast_next_24h = float(w.get("forecast_next_24h_mm", 0))
+                weather_source = w.get("source", "Open-Meteo")
+                weather_updated = w.get("updated_at")
+            except Exception as weather_error:
+                forecast_next_24h = rainfall_24h
+                weather_updated = datetime.now(timezone.utc).isoformat()
+                weather_source = f"BASELINE_FALLBACK ({type(weather_error).__name__})"
+
+            # Terrain
+            try:
+                dem = await asyncio.to_thread(
+                    fetch_dem_features,
+                    loc["lat"],
+                    loc["lng"]
+                )
+
+                if "slope_deg" in dem:
+                    slope_deg = float(dem["slope_deg"])
+
+                if "elevation_m" in dem:
+                    elevation_m = float(dem["elevation_m"])
+
+                terrain_source = dem.get("source", "DEM")
+            except Exception as terrain_error:
+                terrain_source = (
+                    f"BASELINE_FALLBACK ({type(terrain_error).__name__})"
+                )
+
+            # Satellite / NDVI
+            try:
+                nd = await asyncio.to_thread(
+                    fetch_sentinel_ndvi,
+                    loc["lat"],
+                    loc["lng"]
+                )
+
+                if "ndvi" in nd:
+                    ndvi_value = float(nd["ndvi"])
+
+                satellite_source = nd.get("source", "Sentinel")
+                satellite_scene = nd.get("scene_id")
+                satellite_scene_date = nd.get("scene_date")
+            except Exception as satellite_error:
+                satellite_source = (
+                    f"BASELINE_FALLBACK ({type(satellite_error).__name__})"
+                )
+                satellite_scene = None
+                satellite_scene_date = None
+
+            # Historical events
+            try:
+                h = await fetch_coolr_count(
+                    loc["lat"],
+                    loc["lng"],
+                    0.75
+                )
+                hist = int(h.get("count", loc.get("historical_events", 0)))
+                historical_source = "NASA COOLR"
+            except Exception:
+                hist = int(loc.get("historical_events", 0))
+                historical_source = "BASELINE_FALLBACK"
+
+            # Features sent to the ML model
             values = {
-                "rainfall_24h_mm": w["rainfall_24h_mm"],
-                "rainfall_72h_mm": w["rainfall_72h_mm"],
-                "soil_moisture_pct": w["soil_moisture_pct"],
-                "slope_deg": dem["slope_deg"],
-                "elevation_m": dem["elevation_m"],
-                "ndvi": nd["ndvi"],
+                "rainfall_24h_mm": rainfall_24h,
+                "rainfall_72h_mm": rainfall_72h,
+                "soil_moisture_pct": soil_moisture,
+                "slope_deg": slope_deg,
+                "elevation_m": elevation_m,
+                "ndvi": ndvi_value,
                 "historical_events": hist,
             }
-            probability, level = predict(MODEL, values)
-            result.append({
-                **loc, "elevation_m": values["elevation_m"], "slope_deg": values["slope_deg"],
-                "historical_events_live": hist, "ndvi_live": values["ndvi"],
-                "sensor": {"rainfall_24h_mm": w["rainfall_24h_mm"], "rainfall_72h_mm": w["rainfall_72h_mm"], "soil_moisture_pct": w["soil_moisture_pct"]},
-                "forecast_next_24h_mm": w["forecast_next_24h_mm"],
-                "risk_probability": round(probability,4), "risk_percent": round(probability*100,1), "risk_level": level,
-                "data_sources": {"weather": w["source"], "historical": "NASA COOLR", "terrain": dem["source"], "satellite": nd["source"]},
-                "satellite_scene": nd.get("scene_id"), "satellite_scene_date": nd.get("scene_date"),
-                "updated_at": w["updated_at"]
-            })
-        except Exception as e:
-            result.append({**loc, "data_error": str(e), "data_sources": {"status": "REAL_DATA_UNAVAILABLE"}})
-    return result
 
+            # AI prediction
+            probability, level = predict(MODEL, values)
+
+            result.append({
+                **loc,
+
+                "elevation_m": elevation_m,
+                "slope_deg": slope_deg,
+
+                "historical_events_live": hist,
+                "ndvi_live": ndvi_value,
+
+                "sensor": {
+                    "rainfall_24h_mm": rainfall_24h,
+                    "rainfall_72h_mm": rainfall_72h,
+                    "soil_moisture_pct": soil_moisture,
+                },
+
+                "forecast_next_24h_mm": forecast_next_24h,
+
+                "risk_probability": round(probability, 4),
+                "risk_percent": round(probability * 100, 1),
+                "risk_level": level,
+
+                "data_sources": {
+                    "weather": weather_source,
+                    "historical": historical_source,
+                    "terrain": terrain_source,
+                    "satellite": satellite_source,
+                },
+
+                "satellite_scene": satellite_scene,
+                "satellite_scene_date": satellite_scene_date,
+                "updated_at": weather_updated,
+            })
+
+        except Exception as e:
+            # This should only happen if the model/prediction itself fails.
+            result.append({
+                **loc,
+                "data_error": str(e),
+                "data_sources": {
+                    "status": "PREDICTION_ERROR"
+                }
+            })
+
+    return result
 @app.get("/api/real-data/history/{location_id}")
 async def real_history(location_id: str):
     loc = next((x for x in LOCATIONS if x["id"] == location_id), None)
