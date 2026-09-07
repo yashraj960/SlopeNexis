@@ -15,5 +15,5 @@ scikit-learn
 joblib
 rasterio
 pyproj
-
+websockets
 requests
