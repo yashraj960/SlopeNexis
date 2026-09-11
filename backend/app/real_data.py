@@ -6,11 +6,13 @@ from typing import Any
 import time
 
 OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
+
 OVERPASS_ENDPOINTS = [
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
 ]
+
+
 COOLR = "https://gis.earthdata.nasa.gov/gis05/rest/services/Landslides/COOLR_Events_Points/FeatureServer/0/query"
 GLC_CSV = "https://data.nasa.gov/docs/legacy/Global_Landslide_Catalog_Export/Global_Landslide_Catalog_Export_rows.csv"
 _COOLR_RETRY_AFTER = 0.0
@@ -130,7 +132,11 @@ async def fetch_coolr_count(lat: float, lon: float, radius_deg: float = 1.0) -> 
 
 async def fetch_osm_layers(locations: list[dict]) -> dict[str, list]:
     if not locations:
-        return {"roads": [], "villages": [], "infrastructure": []}
+        return {
+            "roads": [],
+            "villages": [],
+            "infrastructure": []
+        }
 
     cache_key = tuple(
         sorted(
@@ -144,203 +150,229 @@ async def fetch_osm_layers(locations: list[dict]) -> dict[str, list]:
     )
 
     cached = _OSM_CACHE.get(cache_key)
+
     if cached and time.time() - cached[0] < 600:
         return cached[1]
 
-    south = max(-90.0, min(x["lat"] for x in locations) - 0.15)
-    north = min(90.0, max(x["lat"] for x in locations) + 0.15)
-    west = max(-180.0, min(x["lng"] for x in locations) - 0.15)
-    east = min(180.0, max(x["lng"] for x in locations) + 0.15)
-
-    q = f"""
-    [out:json][timeout:20];
-    (
-      way[highway]({south},{west},{north},{east});
-      node[place~'village|town|hamlet']({south},{west},{north},{east});
-      node[amenity~'hospital|school|fire_station']({south},{west},{north},{east});
-      node[power='substation']({south},{west},{north},{east});
-    );
-    out center tags;
-    """
-
     headers = {
-        "User-Agent": "SlopeNexis-Landslide-Monitor/1.0 (educational project)",
+        "User-Agent": "SlopeNexis-Landslide-Monitor/1.0",
         "Accept": "application/json",
-        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Type": "application/x-www-form-urlencoded"
     }
 
-    data = None
-    last_error = None
+    roads = []
+    villages = []
+    infrastructure = []
 
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(
-            connect=10.0,
-            read=25.0,
-            write=25.0,
-            pool=10.0
+            connect=15.0,
+            read=60.0,
+            write=30.0,
+            pool=15.0
         ),
         follow_redirects=True,
         headers=headers
     ) as client:
-        for endpoint in OVERPASS_ENDPOINTS:
-            try:
-                print(f"Trying Overpass endpoint: {endpoint}")
-
-                r = await client.post(
-                    endpoint,
-                    content=q.encode("utf-8")
-                )
-
-                r.raise_for_status()
-                data = r.json()
-
-                print(f"Overpass success: {endpoint}")
-                break
-
-            except Exception as exc:
-                last_error = exc
-                print(
-                    f"Overpass failed: {endpoint} -> "
-                    f"{type(exc).__name__}: {exc}"
-                )
-
-    if data is None:
-        print(
-            "WARNING: All OpenStreetMap Overpass endpoints failed. "
-            "Using baseline GIS fallback."
-        )
-
-        roads = []
-        villages = []
-        infra = []
 
         for loc in locations:
-            roads.append({
-                "id": f"BASE-R-{loc['id']}",
-                "name": loc.get("name", "Monitored Road"),
-                "type": "monitored_road",
-                "status": "MONITORED",
-                "lat": loc["lat"],
-                "lng": loc["lng"],
-                "source": "SlopeNexis Baseline"
-            })
 
-            villages.append({
-                "id": f"BASE-V-{loc['id']}",
-                "name": f"Nearby Settlement - {loc.get('name', loc['id'])}",
-                "district": loc.get("district", ""),
-                "lat": loc["lat"],
-                "lng": loc["lng"],
-                "population": None,
-                "risk": "MONITORED",
-                "source": "SlopeNexis Baseline"
-            })
+            lat = float(loc["lat"])
+            lng = float(loc["lng"])
 
-            infra.append({
-                "id": f"BASE-I-{loc['id']}",
-                "name": f"Monitoring Infrastructure - {loc.get('name', loc['id'])}",
-                "type": "monitoring_station",
-                "lat": loc["lat"],
-                "lng": loc["lng"],
-                "priority": "MONITORED",
-                "source": "SlopeNexis Baseline"
-            })
+            q = f"""
+[out:json][timeout:45];
+(
+  way[highway](around:15000,{lat},{lng});
+  node[place~"village|town|hamlet"](around:15000,{lat},{lng});
+  node[amenity~"hospital|school|fire_station"](around:15000,{lat},{lng});
+  node[power="substation"](around:15000,{lat},{lng});
+);
+out center tags;
+"""
 
+            data = None
+
+            for endpoint in OVERPASS_ENDPOINTS:
+                try:
+                    print(
+                        f"Querying OSM for {loc['id']} "
+                        f"using {endpoint}"
+                    )
+
+                    response = await client.post(
+                        endpoint,
+                        content=q.encode("utf-8")
+                    )
+
+                    response.raise_for_status()
+
+                    data = response.json()
+
+                    print(
+                        f"OSM success for {loc['id']} "
+                        f"from {endpoint}"
+                    )
+
+                    break
+
+                except Exception as exc:
+                    print(
+                        f"OSM failed for {loc['id']} "
+                        f"using {endpoint}: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+
+            if data is None:
+                continue
+
+            for element in data.get("elements", []):
+
+                tags = element.get("tags", {})
+
+                if element.get("type") == "way":
+
+                    center = element.get("center", {})
+
+                    if (
+                        "lat" in center
+                        and "lon" in center
+                    ):
+                        roads.append({
+                            "id": f"OSM-R-{element['id']}",
+                            "name": tags.get(
+                                "name",
+                                tags.get(
+                                    "ref",
+                                    "Unnamed road"
+                                )
+                            ),
+                            "type": tags.get(
+                                "highway",
+                                "road"
+                            ),
+                            "status": "MONITORED",
+                            "lat": center["lat"],
+                            "lng": center["lon"],
+                            "source": "OpenStreetMap"
+                        })
+
+                elif tags.get("place") in {
+                    "village",
+                    "town",
+                    "hamlet"
+                }:
+
+                    villages.append({
+                        "id": f"OSM-V-{element['id']}",
+                        "name": tags.get(
+                            "name",
+                            "Unnamed settlement"
+                        ),
+                        "district": tags.get(
+                            "addr:district",
+                            ""
+                        ),
+                        "lat": element.get("lat"),
+                        "lng": element.get("lon"),
+                        "population": tags.get(
+                            "population"
+                        ),
+                        "risk": "MONITORED",
+                        "source": "OpenStreetMap"
+                    })
+
+                elif (
+                    tags.get("amenity") in {
+                        "hospital",
+                        "school",
+                        "fire_station"
+                    }
+                    or tags.get("power") == "substation"
+                ):
+
+                    infrastructure.append({
+                        "id": f"OSM-I-{element['id']}",
+                        "name": tags.get(
+                            "name",
+                            tags.get(
+                                "amenity",
+                                tags.get(
+                                    "power",
+                                    "facility"
+                                )
+                            )
+                        ),
+                        "type": tags.get(
+                            "amenity",
+                            tags.get(
+                                "power",
+                                "facility"
+                            )
+                        ),
+                        "lat": element.get("lat"),
+                        "lng": element.get("lon"),
+                        "priority": "MONITORED",
+                        "source": "OpenStreetMap"
+                    })
+
+    roads = roads[:500]
+    villages = villages[:500]
+    infrastructure = infrastructure[:500]
+
+    if not roads and not villages and not infrastructure:
+        result = {
+            "roads": [
+                {
+                    "id": f"BASE-R-{loc['id']}",
+                    "name": loc.get(
+                        "name",
+                        "Monitored Road"
+                    ),
+                    "type": "monitored_road",
+                    "status": "MONITORED",
+                    "lat": loc["lat"],
+                    "lng": loc["lng"],
+                    "source": "SlopeNexis Baseline"
+                }
+                for loc in locations
+            ],
+            "villages": [
+                {
+                    "id": f"BASE-V-{loc['id']}",
+                    "name": f"Nearby Settlement - {loc.get('name', loc['id'])}",
+                    "district": loc.get("district", ""),
+                    "lat": loc["lat"],
+                    "lng": loc["lng"],
+                    "population": None,
+                    "risk": "MONITORED",
+                    "source": "SlopeNexis Baseline"
+                }
+                for loc in locations
+            ],
+            "infrastructure": [
+                {
+                    "id": f"BASE-I-{loc['id']}",
+                    "name": f"Monitoring Infrastructure - {loc.get('name', loc['id'])}",
+                    "type": "monitoring_station",
+                    "lat": loc["lat"],
+                    "lng": loc["lng"],
+                    "priority": "MONITORED",
+                    "source": "SlopeNexis Baseline"
+                }
+                for loc in locations
+            ]
+        }
+    else:
         result = {
             "roads": roads,
             "villages": villages,
-            "infrastructure": infra
+            "infrastructure": infrastructure
         }
 
-        _OSM_CACHE[cache_key] = (time.time(), result)
-
-        return result
-
-    roads = []
-    villages = []
-    infra = []
-
-    for e in data.get("elements", []):
-        tags = e.get("tags", {})
-
-        if e.get("type") == "way":
-            c = e.get("center", {})
-
-            if "lat" in c and "lon" in c:
-                roads.append({
-                    "id": f"OSM-R-{e['id']}",
-                    "name": tags.get(
-                        "name",
-                        tags.get("ref", "Unnamed road")
-                    ),
-                    "type": tags.get("highway", "road"),
-                    "status": "MONITORED",
-                    "lat": c["lat"],
-                    "lng": c["lon"],
-                    "source": "OpenStreetMap"
-                })
-
-        elif tags.get("place") in {
-            "village",
-            "town",
-            "hamlet"
-        }:
-            villages.append({
-                "id": f"OSM-V-{e['id']}",
-                "name": tags.get(
-                    "name",
-                    "Unnamed settlement"
-                ),
-                "district": tags.get(
-                    "addr:district",
-                    ""
-                ),
-                "lat": e.get("lat"),
-                "lng": e.get("lon"),
-                "population": tags.get("population"),
-                "risk": "MONITORED",
-                "source": "OpenStreetMap"
-            })
-
-        elif (
-            tags.get("amenity") in {
-                "hospital",
-                "school",
-                "fire_station"
-            }
-            or tags.get("power") == "substation"
-        ):
-            infra.append({
-                "id": f"OSM-I-{e['id']}",
-                "name": tags.get(
-                    "name",
-                    tags.get(
-                        "amenity",
-                        tags.get(
-                            "power",
-                            "facility"
-                        )
-                    )
-                ),
-                "type": tags.get(
-                    "amenity",
-                    tags.get(
-                        "power",
-                        "facility"
-                    )
-                ),
-                "lat": e.get("lat"),
-                "lng": e.get("lon"),
-                "priority": "MONITORED",
-                "source": "OpenStreetMap"
-            })
-
-    result = {
-        "roads": roads[:250],
-        "villages": villages[:250],
-        "infrastructure": infra[:250]
-    }
-
-    _OSM_CACHE[cache_key] = (time.time(), result)
+    _OSM_CACHE[cache_key] = (
+        time.time(),
+        result
+    )
 
     return result
