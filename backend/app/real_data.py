@@ -167,7 +167,7 @@ async def fetch_osm_layers(locations: list[dict]) -> dict[str, list]:
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(
             connect=15.0,
-            read=60.0,
+            read=75.0,
             write=30.0,
             pool=15.0
         ),
@@ -181,12 +181,12 @@ async def fetch_osm_layers(locations: list[dict]) -> dict[str, list]:
             lng = float(loc["lng"])
 
             q = f"""
-[out:json][timeout:45];
+[out:json][timeout:60];
 (
-  way[highway](around:15000,{lat},{lng});
-  node[place~"village|town|hamlet"](around:15000,{lat},{lng});
-  node[amenity~"hospital|school|fire_station"](around:15000,{lat},{lng});
-  node[power="substation"](around:15000,{lat},{lng});
+  way[highway](around:10000,{lat},{lng});
+  node[place~"village|town|hamlet"](around:10000,{lat},{lng});
+  node[amenity~"hospital|school|fire_station"](around:10000,{lat},{lng});
+  node[power="substation"](around:10000,{lat},{lng});
 );
 out center tags;
 """
@@ -223,107 +223,110 @@ out center tags;
                         f"{type(exc).__name__}: {exc}"
                     )
 
-            if data is None:
-                continue
+            location_roads = []
+            location_villages = []
+            location_infrastructure = []
 
-            for element in data.get("elements", []):
+            if data is not None:
 
-                tags = element.get("tags", {})
+                for element in data.get("elements", []):
 
-                if element.get("type") == "way":
+                    tags = element.get("tags", {})
 
-                    center = element.get("center", {})
+                    if element.get("type") == "way":
 
-                    if (
-                        "lat" in center
-                        and "lon" in center
-                    ):
-                        roads.append({
-                            "id": f"OSM-R-{element['id']}",
+                        center = element.get("center", {})
+
+                        if (
+                            "lat" in center
+                            and "lon" in center
+                        ):
+                            location_roads.append({
+                                "id": f"OSM-R-{element['id']}",
+                                "name": tags.get(
+                                    "name",
+                                    tags.get(
+                                        "ref",
+                                        "Unnamed road"
+                                    )
+                                ),
+                                "type": tags.get(
+                                    "highway",
+                                    "road"
+                                ),
+                                "status": "MONITORED",
+                                "lat": center["lat"],
+                                "lng": center["lon"],
+                                "source": "OpenStreetMap"
+                            })
+
+                    elif tags.get("place") in {
+                        "village",
+                        "town",
+                        "hamlet"
+                    }:
+
+                        location_villages.append({
+                            "id": f"OSM-V-{element['id']}",
                             "name": tags.get(
                                 "name",
-                                tags.get(
-                                    "ref",
-                                    "Unnamed road"
-                                )
+                                "Unnamed settlement"
                             ),
-                            "type": tags.get(
-                                "highway",
-                                "road"
+                            "district": tags.get(
+                                "addr:district",
+                                loc.get("district", "")
                             ),
-                            "status": "MONITORED",
-                            "lat": center["lat"],
-                            "lng": center["lon"],
+                            "lat": element.get("lat"),
+                            "lng": element.get("lon"),
+                            "population": tags.get(
+                                "population"
+                            ),
+                            "risk": "MONITORED",
                             "source": "OpenStreetMap"
                         })
 
-                elif tags.get("place") in {
-                    "village",
-                    "town",
-                    "hamlet"
-                }:
+                    elif (
+                        tags.get("amenity") in {
+                            "hospital",
+                            "school",
+                            "fire_station"
+                        }
+                        or tags.get("power") == "substation"
+                    ):
 
-                    villages.append({
-                        "id": f"OSM-V-{element['id']}",
-                        "name": tags.get(
-                            "name",
-                            "Unnamed settlement"
-                        ),
-                        "district": tags.get(
-                            "addr:district",
-                            ""
-                        ),
-                        "lat": element.get("lat"),
-                        "lng": element.get("lon"),
-                        "population": tags.get(
-                            "population"
-                        ),
-                        "risk": "MONITORED",
-                        "source": "OpenStreetMap"
-                    })
-
-                elif (
-                    tags.get("amenity") in {
-                        "hospital",
-                        "school",
-                        "fire_station"
-                    }
-                    or tags.get("power") == "substation"
-                ):
-
-                    infrastructure.append({
-                        "id": f"OSM-I-{element['id']}",
-                        "name": tags.get(
-                            "name",
-                            tags.get(
+                        location_infrastructure.append({
+                            "id": f"OSM-I-{element['id']}",
+                            "name": tags.get(
+                                "name",
+                                tags.get(
+                                    "amenity",
+                                    tags.get(
+                                        "power",
+                                        "facility"
+                                    )
+                                )
+                            ),
+                            "type": tags.get(
                                 "amenity",
                                 tags.get(
                                     "power",
                                     "facility"
                                 )
-                            )
-                        ),
-                        "type": tags.get(
-                            "amenity",
-                            tags.get(
-                                "power",
-                                "facility"
-                            )
-                        ),
-                        "lat": element.get("lat"),
-                        "lng": element.get("lon"),
-                        "priority": "MONITORED",
-                        "source": "OpenStreetMap"
-                    })
+                            ),
+                            "lat": element.get("lat"),
+                            "lng": element.get("lon"),
+                            "priority": "MONITORED",
+                            "source": "OpenStreetMap"
+                        })
 
-    roads = roads[:500]
-    villages = villages[:500]
-    infrastructure = infrastructure[:500]
+            location_roads = location_roads[:200]
+            location_villages = location_villages[:100]
+            location_infrastructure = location_infrastructure[:100]
 
-    if not roads and not villages and not infrastructure:
-        result = {
-            "roads": [
-                {
+            if location_roads:
+                roads.extend(location_roads)
+            else:
+                roads.append({
                     "id": f"BASE-R-{loc['id']}",
                     "name": loc.get(
                         "name",
@@ -334,11 +337,12 @@ out center tags;
                     "lat": loc["lat"],
                     "lng": loc["lng"],
                     "source": "SlopeNexis Baseline"
-                }
-                for loc in locations
-            ],
-            "villages": [
-                {
+                })
+
+            if location_villages:
+                villages.extend(location_villages)
+            else:
+                villages.append({
                     "id": f"BASE-V-{loc['id']}",
                     "name": f"Nearby Settlement - {loc.get('name', loc['id'])}",
                     "district": loc.get("district", ""),
@@ -347,11 +351,12 @@ out center tags;
                     "population": None,
                     "risk": "MONITORED",
                     "source": "SlopeNexis Baseline"
-                }
-                for loc in locations
-            ],
-            "infrastructure": [
-                {
+                })
+
+            if location_infrastructure:
+                infrastructure.extend(location_infrastructure)
+            else:
+                infrastructure.append({
                     "id": f"BASE-I-{loc['id']}",
                     "name": f"Monitoring Infrastructure - {loc.get('name', loc['id'])}",
                     "type": "monitoring_station",
@@ -359,16 +364,13 @@ out center tags;
                     "lng": loc["lng"],
                     "priority": "MONITORED",
                     "source": "SlopeNexis Baseline"
-                }
-                for loc in locations
-            ]
-        }
-    else:
-        result = {
-            "roads": roads,
-            "villages": villages,
-            "infrastructure": infrastructure
-        }
+                })
+
+    result = {
+        "roads": roads,
+        "villages": villages,
+        "infrastructure": infrastructure
+    }
 
     _OSM_CACHE[cache_key] = (
         time.time(),
